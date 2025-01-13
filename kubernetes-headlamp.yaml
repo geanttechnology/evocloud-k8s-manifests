@@ -1,0 +1,170 @@
+---
+# Source: headlamp/templates/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: oidc
+  namespace: kube-system
+type: Opaque
+data:
+
+---
+# Source: headlamp/templates/serviceaccount.yaml
+#https://headlamp.dev/docs/latest/installation/#create-a-service-account-token
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: headlamp-admin
+  namespace: kube-system
+
+---
+# Source: headlamp/templates/clusterrolebinding.yaml
+#https://headlamp.dev/docs/latest/installation/#create-a-service-account-token
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: headlamp-admin
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: headlamp-admin
+    namespace: kube-system
+
+---
+# Source: headlamp/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: headlamp
+  namespace: kube-system
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 4466
+      protocol: TCP
+      name: http
+  selector:
+    k8s-app: headlamp
+
+---
+#https://headlamp.dev/docs/latest/installation/in-cluster/
+#https://github.com/headlamp-k8s/headlamp/blob/main/kubernetes-headlamp.yaml
+#https://github.com/headlamp-k8s/plugins
+
+# Source: headlamp/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: headlamp
+  namespace: kube-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      k8s-app: headlamp
+  template:
+    metadata:
+      labels:
+        k8s-app: headlamp
+    spec:
+      serviceAccountName: headlamp-admin
+      securityContext:
+        {}
+
+      volumes:
+        - name: headlamp-plugins-vol
+          persistentVolumeClaim:
+            claimName: headlamp-plugins-pvc
+
+      initContainers:
+        - name: headlamp-plugins
+          securityContext:
+            privileged: false
+            runAsGroup: 101
+            runAsNonRoot: true
+            runAsUser: 100
+          image: "ghcr.io/headlamp-k8s/headlamp-plugin-flux:latest"
+          imagePullPolicy: IfNotPresent
+          env:
+          command:
+            - "/bin/sh"
+            - "-c"
+            - "mkdir -p /headlamp/plugins && cp -r /plugins/* /headlamp/plugins/"
+          volumeMounts:
+            - name: headlamp-plugins-vol
+              mountPath: /headlamp/plugins
+
+      containers:
+        - name: headlamp
+          securityContext:
+            privileged: false
+            runAsGroup: 101
+            runAsNonRoot: true
+            runAsUser: 100
+          image: "ghcr.io/headlamp-k8s/headlamp:v0.27.0"
+          imagePullPolicy: IfNotPresent
+          env:
+          args:
+            - "-in-cluster"
+            - "-plugins-dir=/headlamp/plugins"
+            # Check if externalSecret is disabled
+          ports:
+            - name: http
+              containerPort: 4466
+              protocol: TCP
+          volumeMounts:
+            - name: headlamp-plugins-vol
+              mountPath: /headlamp/plugins
+          livenessProbe:
+            httpGet:
+              path: "/"
+              port: http
+          readinessProbe:
+            httpGet:
+              path: "/"
+              port: http
+          resources:
+            {}
+
+---
+#Reference: https://kubernetes.io/docs/concepts/storage/persistent-volumes/#reserving-a-persistentvolume
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: headlamp-plugins-pvc
+  namespace: kube-system
+spec:
+  storageClassName: "ceph-block"
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: headlamp
+  namespace: kube-system
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: headlamp
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+
