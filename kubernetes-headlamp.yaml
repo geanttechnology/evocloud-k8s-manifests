@@ -87,7 +87,7 @@ spec:
             privileged: false
             runAsGroup: 101
             runAsNonRoot: true
-            runAsUser: 100
+            runAsUser: 0
           image: "ghcr.io/headlamp-k8s/headlamp-plugin-flux:latest"
           imagePullPolicy: IfNotPresent
           env:
@@ -105,8 +105,8 @@ spec:
             privileged: false
             runAsGroup: 101
             runAsNonRoot: true
-            runAsUser: 100
-          image: "ghcr.io/headlamp-k8s/headlamp:v0.27.0"
+            runAsUser: 0
+          image: "ghcr.io/headlamp-k8s/headlamp:v0.28.0"
           imagePullPolicy: IfNotPresent
           env:
           args:
